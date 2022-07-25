@@ -917,6 +917,94 @@ static sljit_s32 emit_fast_return(struct sljit_compiler *compiler, sljit_s32 src
 }
 
 /* --------------------------------------------------------------------- */
+/*  Multiple save                                                        */
+/* --------------------------------------------------------------------- */
+
+SLJIT_API_FUNC_ATTRIBUTE sljit_s32 sljit_emit_move_regs(struct sljit_compiler *compiler, sljit_s32 op,
+	sljit_s32 mem, sljit_sw memw,
+	sljit_reg_set reg_set)
+{
+	sljit_u8* inst;
+	sljit_s32 idx = 0, count = 0, single_idx = 0, base_reg = 0, current_reg;
+	sljit_sw base_offset = 0;
+	/* Using 4 bit for each register. */
+	sljit_uw reg_list = 0;
+
+	CHECK_ERROR();
+	CHECK(check_sljit_emit_move_regs(compiler, op, mem, memw, reg_set));
+	ADJUST_LOCAL_OFFSET(mem, memw);
+
+	while (reg_set != 0) {
+		if ((reg_set & 0xf) == 0) {
+			idx += 4;
+			reg_set >>= 4;
+			continue;
+		}
+
+		if (reg_set & 0x1) {
+			reg_list |= (sljit_uw)idx << (reg_map[idx] << 2);
+			single_idx = idx;
+			count++;
+		}
+
+		reg_set >>= 1;
+		idx++;
+	}
+
+	if (count <= 1) {
+		if (op == SLJIT_MEM_LOAD)
+			return emit_mov(compiler, single_idx, 0, mem, memw);
+		return emit_mov(compiler, mem, memw, single_idx, 0);
+	}
+
+	if ((mem & REG_MASK) == 0) {
+		EMIT_MOV(compiler, TMP_REG1, 0, SLJIT_IMM, memw);
+
+		mem = SLJIT_MEM1(TMP_REG1);
+		memw = 0;
+	} else if ((mem & OFFS_REG_MASK) || (memw < HALFWORD_MIN) || (memw > HALFWORD_MAX - (count - 1) * SSIZE_OF(sw))) {
+		inst = emit_x86_instruction(compiler, 1, TMP_REG1, 0, mem, memw);
+		FAIL_IF(!inst);
+		*inst = LEA_r_m;
+
+		mem = SLJIT_MEM1(TMP_REG1);
+		memw = 0;
+	}
+
+	if (op == SLJIT_MEM_LOAD)
+		base_reg = mem & REG_MASK;
+
+	while (reg_list != 0) {
+		if ((reg_list & 0xffff) == 0) {
+			reg_list >>= 16;
+			continue;
+		}
+
+		current_reg = reg_list & 0xf;
+
+		if (current_reg != 0) {
+			if (current_reg == base_reg) {
+				base_offset = memw;
+				base_reg = -1;
+			} else if (op == SLJIT_MEM_LOAD) {
+				EMIT_MOV(compiler, (reg_list & 0xf), 0, mem, memw);
+			} else {
+				EMIT_MOV(compiler, mem, memw, (reg_list & 0xf), 0);
+			}
+
+			memw += SSIZE_OF(sw);
+		}
+
+		reg_list >>= 4;
+	}
+
+	if (base_reg == -1)
+		EMIT_MOV(compiler, (mem & REG_MASK), 0, mem, base_offset);
+
+	return SLJIT_SUCCESS;
+}
+
+/* --------------------------------------------------------------------- */
 /*  Extend input                                                         */
 /* --------------------------------------------------------------------- */
 

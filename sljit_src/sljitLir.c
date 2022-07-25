@@ -2061,6 +2061,70 @@ static SLJIT_INLINE CHECK_RETURN_TYPE check_sljit_emit_fmem(struct sljit_compile
 	CHECK_RETURN_OK;
 }
 
+static SLJIT_INLINE CHECK_RETURN_TYPE check_sljit_emit_move_regs(struct sljit_compiler *compiler, sljit_s32 op,
+	sljit_s32 mem, sljit_sw memw,
+	sljit_reg_set reg_set)
+{
+	sljit_s32 idx;
+
+#if (defined SLJIT_ARGUMENT_CHECKS && SLJIT_ARGUMENT_CHECKS)
+	sljit_reg_set check_reg_set = reg_set;
+
+	CHECK_ARGUMENT(op == SLJIT_MEM_LOAD || op == SLJIT_MEM_STORE);
+	FUNCTION_CHECK_SRC_MEM(mem, memw);
+	CHECK_ARGUMENT(check_reg_set != 0);
+
+	idx = 0;
+	while (check_reg_set != 0) {
+		if ((check_reg_set & 0xf) == 0) {
+			idx += 4;
+			check_reg_set >>= 4;
+			continue;
+		}
+
+		if (check_reg_set & 0x1)
+			CHECK_ARGUMENT(FUNCTION_CHECK_IS_REG(idx));
+
+		check_reg_set >>= 1;
+		idx++;
+	}
+#endif
+#if (defined SLJIT_VERBOSE && SLJIT_VERBOSE)
+	if (SLJIT_UNLIKELY(!!compiler->verbose)) {
+		fprintf(compiler->verbose, "  move_regs.%s ",
+			(op == SLJIT_MEM_LOAD) ? "ld" : "st");
+		sljit_verbose_param(compiler, mem, memw);
+
+		fprintf(compiler->verbose, ", {");
+
+		idx = 0;
+		op = 0;
+		while (reg_set != 0) {
+			if ((reg_set & 0xf) == 0) {
+				idx += 4;
+				reg_set >>= 4;
+				continue;
+			}
+
+
+			if (reg_set & 0x1) {
+				if (op != 0)
+					fprintf(compiler->verbose, ", ");
+				op = 1;
+
+				sljit_verbose_reg(compiler, idx);
+			}
+
+			reg_set >>= 1;
+			idx++;
+		}
+
+		fprintf(compiler->verbose, "}\n");
+	}
+#endif
+	CHECK_RETURN_OK;
+}
+
 static SLJIT_INLINE CHECK_RETURN_TYPE check_sljit_get_local_base(struct sljit_compiler *compiler, sljit_s32 dst, sljit_sw dstw, sljit_sw offset)
 {
 	/* Any offset is allowed. */

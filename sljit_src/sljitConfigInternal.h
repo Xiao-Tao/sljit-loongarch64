@@ -53,6 +53,7 @@ extern "C" {
                             some 64 bit ABIs may use 32 bit pointers)
      sljit_f32            : 32 bit single precision floating point value
      sljit_f64            : 64 bit double precision floating point value
+     sljit_reg_set        : unsigned integer type representing a register set
 
    Macros for feature detection (boolean):
      SLJIT_32BIT_ARCHITECTURE : 32 bit architecture
@@ -468,6 +469,9 @@ typedef sljit_uw sljit_p;
 /* Floating point types. */
 typedef float sljit_f32;
 typedef double sljit_f64;
+
+/* Register set representation. */
+typedef sljit_uw sljit_reg_set;
 
 /* Shift for pointer sized data. */
 #define SLJIT_POINTER_SHIFT SLJIT_WORD_SHIFT

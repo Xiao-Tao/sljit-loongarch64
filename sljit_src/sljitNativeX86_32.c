@@ -1135,6 +1135,126 @@ static sljit_s32 emit_fast_return(struct sljit_compiler *compiler, sljit_s32 src
 	return SLJIT_SUCCESS;
 }
 
+/* --------------------------------------------------------------------- */
+/*  Multiple save                                                        */
+/* --------------------------------------------------------------------- */
+
+SLJIT_API_FUNC_ATTRIBUTE sljit_s32 sljit_emit_move_regs(struct sljit_compiler *compiler, sljit_s32 op,
+	sljit_s32 mem, sljit_sw memw,
+	sljit_reg_set reg_set)
+{
+	sljit_u8* inst;
+	sljit_s32 idx = 0, count = 0, reg_count = 0, single_idx = 0, base_reg = 0, current_reg;
+	sljit_reg_set virtual_reg_set = 0;
+	sljit_sw base_offset = 0;
+	/* Using 4 bit for each register. */
+	sljit_uw reg_list = 0;
+
+	CHECK_ERROR();
+	CHECK(check_sljit_emit_move_regs(compiler, op, mem, memw, reg_set));
+	ADJUST_LOCAL_OFFSET(mem, memw);
+
+	while (reg_set != 0) {
+		if ((reg_set & 0xf) == 0) {
+			idx += 4;
+			reg_set >>= 4;
+			continue;
+		}
+
+		if (reg_set & 0x1) {
+			if (idx < SLJIT_R3 || idx > SLJIT_S3) {
+				reg_list |= (sljit_uw)idx << (reg_map[idx] << 2);
+				reg_count++;
+			} else
+				virtual_reg_set |= (sljit_reg_set)1 << (idx - SLJIT_R3);
+
+			single_idx = idx;
+			count++;
+		}
+
+		reg_set >>= 1;
+		idx++;
+	}
+
+	if (count <= 1) {
+		if (op == SLJIT_MEM_LOAD)
+			return emit_mov(compiler, single_idx, 0, mem, memw);
+		return emit_mov(compiler, mem, memw, single_idx, 0);
+	}
+
+	if (mem & OFFS_REG_MASK) {
+		inst = emit_x86_instruction(compiler, 1, TMP_REG1, 0, mem, memw);
+		FAIL_IF(!inst);
+		*inst = LEA_r_m;
+
+		mem = SLJIT_MEM1(TMP_REG1);
+		memw = 0;
+	}
+
+	if (virtual_reg_set != 0) {
+		memw += SSIZE_OF(sw) * reg_count;
+
+		base_reg = TMP_REG1;
+		if (mem == SLJIT_MEM1(TMP_REG1)) {
+			EMIT_MOV(compiler, SLJIT_MEM1(SLJIT_SP), 0, SLJIT_R0, 0);
+			base_reg = SLJIT_R0;
+		}
+
+		idx = 2 * SSIZE_OF(sw);
+		while (virtual_reg_set != 0) {
+			if (op == SLJIT_MEM_LOAD) {
+				EMIT_MOV(compiler, base_reg, 0, mem, memw);
+				EMIT_MOV(compiler, SLJIT_MEM1(SLJIT_SP), idx, base_reg, 0);
+			} else {
+				EMIT_MOV(compiler, base_reg, 0, SLJIT_MEM1(SLJIT_SP), idx);
+				EMIT_MOV(compiler, mem, memw, base_reg, 0);
+			}
+
+			virtual_reg_set >>= 1;
+			idx += SSIZE_OF(sw);
+			memw += SSIZE_OF(sw);
+		}
+
+		if (mem == SLJIT_MEM1(TMP_REG1))
+			EMIT_MOV(compiler, base_reg, 0, SLJIT_MEM1(SLJIT_SP), 0);
+
+		memw -= SSIZE_OF(sw) * count;
+		base_reg = 0;
+	}
+
+	if (op == SLJIT_MEM_LOAD)
+		base_reg = mem & REG_MASK;
+
+	while (reg_list != 0) {
+		if ((reg_list & 0xffff) == 0) {
+			reg_list >>= 16;
+			continue;
+		}
+
+		current_reg = reg_list & 0xf;
+
+		if (current_reg != 0) {
+			if (current_reg == base_reg) {
+				base_offset = memw;
+				base_reg = -1;
+			} else if (op == SLJIT_MEM_LOAD) {
+				EMIT_MOV(compiler, (reg_list & 0xf), 0, mem, memw);
+			} else {
+				EMIT_MOV(compiler, mem, memw, (reg_list & 0xf), 0);
+			}
+
+			memw += SSIZE_OF(sw);
+		}
+
+		reg_list >>= 4;
+	}
+
+	if (base_reg == -1)
+		EMIT_MOV(compiler, (mem & REG_MASK), 0, mem, base_offset);
+
+	return SLJIT_SUCCESS;
+}
+
 static sljit_s32 skip_frames_before_return(struct sljit_compiler *compiler)
 {
 	sljit_sw size;

@@ -1472,6 +1472,36 @@ SLJIT_API_FUNC_ATTRIBUTE sljit_s32 sljit_emit_fmem(struct sljit_compiler *compil
 	sljit_s32 freg,
 	sljit_s32 mem, sljit_sw memw);
 
+/* Aligned load or store multiple registers. The op argument can be
+   SLJIT_MEM_LOAD or SLJIT_MEM_STORE. The mem/memw arguments provide
+   the memory location where the registers are loaded from or stored.
+   The sljit_reg_list is an unsigned integer type, where each bit
+   represents a register. The registers are transferred in ascending
+   machine register order (not in sljit register order). The machine
+   register indicies can be retrieved by sljit_get_register_index().
+
+   Note: the size of the data read or written by the operation is
+         the number of bits set in reg_set multiplied by the size
+         of machine word.
+
+   Note: when a given register set is stored in memory, and the same
+         set is reloaded later using the previosly stored data, all
+         register values are restored regardless of machine register
+         order. */
+
+#define SLJIT_REG_SET_ADD(reg) \
+	((sljit_reg_set)1 << (reg))
+#define SLJIT_REG_SET_ADD2(reg1, reg2) \
+	(SLJIT_REG_SET_ADD(reg1) | SLJIT_REG_SET_ADD(reg2))
+#define SLJIT_REG_SET_ADD3(reg1, reg2, reg3) \
+	(SLJIT_REG_SET_ADD2(reg1, reg2) | SLJIT_REG_SET_ADD(reg3))
+#define SLJIT_REG_SET_ADD4(reg1, reg2, reg3, reg4) \
+	(SLJIT_REG_SET_ADD3(reg1, reg2, reg3) | SLJIT_REG_SET_ADD(reg4))
+
+SLJIT_API_FUNC_ATTRIBUTE sljit_s32 sljit_emit_move_regs(struct sljit_compiler *compiler, sljit_s32 op,
+	sljit_s32 mem, sljit_sw memw,
+	sljit_reg_set reg_set);
+
 /* Copies the base address of SLJIT_SP + offset to dst. The offset can be
    anything to negate the effect of relative addressing. For example if an
    array of sljit_sw values is stored on the stack from offset 0x40, and R0
